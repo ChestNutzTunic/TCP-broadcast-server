@@ -10,22 +10,23 @@ CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY){
     cl->comm_channel = comm;
     cl->client_id = id;
 
+    // Initialize the Substitution Box
     for(int i=0; i<256; i++){
         cl->cryp_info.sbox[i] = i;
     }
     
     int key_lenght = strlen(KEY);
     int j=0;
-    // SCRAMBLING THE SUBSTITUTION BOX
+    
+    // SCRAMBLING THE SUBSTITUTION BOX USING A PRGA (PSEUDO-RANDOM GENERATOR ALGORITHM)
     for(int i=0; i<256; i++){
-        // 0x9E3779B9 = GOLDEN RATION, cuz... why not?
+        // 0x9E3779B9 = GOLDEN RATIO, cuz... why not?
         j = (j + cl->cryp_info.sbox[i] + KEY[i % key_lenght] + 0x9E3779B9) % 256;
 
         unsigned char temp = cl->cryp_info.sbox[i];
         cl->cryp_info.sbox[i] = cl->cryp_info.sbox[j];
         cl->cryp_info.sbox[j] = temp;
     }
-    // SUBSTITUTION BOX PURPOSE IS TO ACHIEVE PRGA (Pseudo-Random Generation Algorithm)
 
     cl->cryp_info.crypto_i = cl->cryp_info.crypto_j = 0;
 
@@ -41,15 +42,15 @@ void cipher_buffer(CLIENT* cl, char* data, int len){
     for(int k=0; k<len; k++){
         // i = linear counter  
         *i = (*i+1) % 256;
-        // j = jumps to an "unpredictable" position based in the substitution box value
+        // j = pseudorandom jump based on sbox values
         *j = (*j+cl->cryp_info.sbox[*i]) % 256;
 
-        // SWAP
+        // SWAP state values
         unsigned char temp = cl->cryp_info.sbox[*i];
         cl->cryp_info.sbox[*i] = cl->cryp_info.sbox[*j];
         cl->cryp_info.sbox[*j] = temp;
 
-        // KEYSTREAM from sbox[i] + sbox[j]
+        // Generate KEYSTREAM from sbox state
         int t = (cl->cryp_info.sbox[*i] + cl->cryp_info.sbox[*j]) % 256;
 
         data[k] ^= cl->cryp_info.sbox[t];

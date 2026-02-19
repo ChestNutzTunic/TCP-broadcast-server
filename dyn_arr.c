@@ -6,18 +6,22 @@ struct cl_arr{
     int capacity;
 };
 
+void release_client(CLIENT* cl){
+    closesocket(cl->comm_channel); 
+    free(cl);
+}
+
 DYN_CLIENT_ARRAY* init_DSA(){
     DYN_CLIENT_ARRAY* Vec = malloc(sizeof(DYN_CLIENT_ARRAY));
     Vec->capacity = 1;
     Vec->size = 0;
     Vec->cl_arr = malloc(sizeof(CLIENT*));
-
     return Vec;
 }
 
 void add_to_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* new_item){
     if(Vec->capacity == Vec->size){
-        Vec->capacity *=2;
+        Vec->capacity *= 2;
         Vec->cl_arr = realloc(Vec->cl_arr, sizeof(CLIENT*)*Vec->capacity);
     }
     Vec->cl_arr[Vec->size] = new_item;
@@ -26,7 +30,7 @@ void add_to_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* new_item){
 
 void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s){
     int id = -1;
-    for(int i=0; i<Vec->size; i++){
+    for(int i=0; i < Vec->size; i++){
         if(Vec->cl_arr[i] == s){
             id = i;
             break;
@@ -34,13 +38,11 @@ void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s){
     }
 
     if(id != -1){
-
         if(id < Vec->size - 1){
+            // Shift elements to the left to maintain data locality
             memmove(&Vec->cl_arr[id], &Vec->cl_arr[id+1], (Vec->size - 1 - id) * sizeof(CLIENT*));
         }
-        
         Vec->size--;
-        
     }
 }
 
@@ -49,7 +51,7 @@ int sizeof_DSA(DYN_CLIENT_ARRAY* Vec){
 }
 
 CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, int id){
-    if(Vec->size > id)
+    if(id >= 0 && id < Vec->size)
         return (Vec->cl_arr[id]);
 
     return NULL;
