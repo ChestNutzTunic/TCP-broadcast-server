@@ -1,19 +1,16 @@
 #pragma once
-#include <stdio.h>
-#include <stdlib.h>
-#include <winsock2.h>
-#include <windows.h>
+#include "crypto.h"
 
-typedef struct sock_arr DYN_SOCKET_ARRAY;
+typedef struct cl_arr DYN_CLIENT_ARRAY;
 
-DYN_SOCKET_ARRAY* init_DSA();
+DYN_CLIENT_ARRAY* init_DSA();
 
-void add_to_DSA(DYN_SOCKET_ARRAY* Vec, SOCKET new_item);
+void add_to_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* new_item);
 
-int sizeof_DSA(DYN_SOCKET_ARRAY* Vec);
+int sizeof_DSA(DYN_CLIENT_ARRAY* Vec);
 
-SOCKET* get_elem_DSA(DYN_SOCKET_ARRAY* Vec, int id);
+CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, int id);
 
-void free_DSA(DYN_SOCKET_ARRAY* Vec);
+void free_DSA(DYN_CLIENT_ARRAY* Vec);
 
-void remove_of_DSA(DYN_SOCKET_ARRAY* Vec, SOCKET s);
+void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s);

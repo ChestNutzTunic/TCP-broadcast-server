@@ -5,25 +5,25 @@
 // NECESSARY FOR SRWLOCK USAGE
 
 #include "dyn_arr.h"
+#include "crypto.h"
+#include <stdbool.h>
 
 #define client_list_size 5
 
 // PASSE O OBJETO "CLIENT" E CRIE UMA NOVA CONVERSA
-DWORD WINAPI startClientConversation(LPVOID comm_channel);
-
-typedef struct{
-    SOCKET comm_channel;
-    DWORD client_id;
-} CLIENT;
+DWORD WINAPI startClientConversation(LPVOID client_comm_channel);
 
 SRWLOCK LOCK;
-DYN_SOCKET_ARRAY* CONN_A = NULL;
+DYN_CLIENT_ARRAY* CONN_A = NULL;
+SYSTEM_INFO SYS_INFO;
 
 int main() {
     // Estrutura que guardará detalhes da implementação de rede do Windows
     // WINDOWS SOCKET API
     WSADATA wsa;
     InitializeSRWLock(&LOCK);
+
+    GetSystemInfo(&SYS_INFO);
     
     // WSAStartup: WINDOWS SOCKET API
     // MAKEWORD(2,2) solicita a versão 2.2 do Winsock.
@@ -61,13 +61,11 @@ int main() {
         SOCKET new_comm = accept(s, (struct sockaddr*)&client_addr, &addr_len);
 
         if(new_comm != INVALID_SOCKET){
-            AcquireSRWLockExclusive(&LOCK);
-            add_to_DSA(CONN_A, new_comm);
-            ReleaseSRWLockExclusive(&LOCK);
+            CLIENT* cl = initialize_client(new_comm, client_total_count++, "MY_MAGIC_KEY");
             
-            CLIENT* cl = malloc(sizeof(CLIENT));
-            cl->client_id = client_total_count++;
-            cl->comm_channel = new_comm;
+            AcquireSRWLockExclusive(&LOCK);
+            add_to_DSA(CONN_A, cl);
+            ReleaseSRWLockExclusive(&LOCK);
 
             HANDLE thr = CreateThread(NULL, 0, &startClientConversation, cl, 0, NULL);
             CloseHandle(thr);
@@ -84,22 +82,13 @@ int main() {
     return 0;
 }
 
-DWORD WINAPI startClientConversation(LPVOID serv){
+DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
 
     // CLIENT_INFO = socket do servidor e id do cliente
-    CLIENT* client_info = serv;
-
-    // COPIA DOS VALORES PRA STACK DA THREAD
-    SOCKET comm_channel = client_info->comm_channel;
-    DWORD client_id = client_info->client_id;
-
-    free(client_info);
-
-    SYSTEM_INFO SYS_INFO;
-    GetSystemInfo(&SYS_INFO);
+    CLIENT* client_info = client_comm_channel;
 
     DWORD core_num = SYS_INFO.dwNumberOfProcessors;
-    DWORD core_id = (1 << (client_id % core_num));
+    DWORD core_id = (1 << (client_info->client_id % core_num));
 
     SetThreadAffinityMask(GetCurrentThread(), core_id);
 
@@ -107,15 +96,19 @@ DWORD WINAPI startClientConversation(LPVOID serv){
     char bufferOUT[1024];
     int bytesRecebidos;
 
-    snprintf(bufferIN, sizeof(bufferIN), "Usuario %d entrou no chat", client_id);
+    snprintf(bufferIN, sizeof(bufferIN), "Usuario %d entrou no chat", client_info->client_id);
 
     AcquireSRWLockShared(&LOCK);
     for(int i=0; i<sizeof_DSA(CONN_A); i++){
-        SOCKET* S = get_elem_DSA(CONN_A, i);
+        CLIENT* S = get_elem_DSA(CONN_A, i);
 
-        if(S!=NULL && *S != INVALID_SOCKET)
-            send(*S, bufferIN, strlen(bufferIN), 0);
-
+        if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+            char buff[1024];
+            int size_buff = strlen(bufferIN);
+            strcpy(buff, bufferIN);
+            cipher_buffer(S, buff, size_buff);
+            send(S->comm_channel, buff, size_buff, 0);
+        }
     }
     ReleaseSRWLockShared(&LOCK);
 
@@ -123,41 +116,54 @@ DWORD WINAPI startClientConversation(LPVOID serv){
 
         memset(bufferIN, 0, sizeof(bufferIN));
 
-        // Le os dados enviados
-        bytesRecebidos = recv(comm_channel, bufferIN, sizeof(bufferIN)-1, 0);
+        // Le os dados recebidos
+        bytesRecebidos = recv(client_info->comm_channel, bufferIN, sizeof(bufferIN)-1, 0);
 
         if(bytesRecebidos > 0){
+
+            // DECIPHER
+            cipher_buffer(client_info, bufferIN, bytesRecebidos);
+
             // Se digitar "sair", quebra-se o loop
             if (strncmp(bufferIN, "sair", 4) == 0){
-                snprintf(bufferOUT, sizeof(bufferOUT), "O amigo %d solicitou o encerramento.\n", client_id);
+                snprintf(bufferOUT, sizeof(bufferOUT), "O amigo %d solicitou o encerramento.\n", client_info->client_id);
+                int size_buff = strlen(bufferOUT);
 
                 AcquireSRWLockShared(&LOCK);
                 for(int i=0; i<sizeof_DSA(CONN_A); i++){
-                SOCKET* S = get_elem_DSA(CONN_A, i);
+                CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                    if(S!=NULL && *S != INVALID_SOCKET)
-                        send(*S, bufferOUT, strlen(bufferOUT), 0);
-
+                    if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+                        char buff[1024];
+                        memcpy(buff, bufferOUT, size_buff);
+                        cipher_buffer(S, buff, size_buff);
+                        send(S->comm_channel, buff, size_buff, 0);
+                    }
                 }
                 ReleaseSRWLockShared(&LOCK);
 
                 break;
             }
             
-            snprintf(bufferOUT, sizeof(bufferOUT), "Amigo %d diz:\n %s\n", client_id, bufferIN);
+            snprintf(bufferOUT, sizeof(bufferOUT), "Amigo %d diz:\n %s\n", client_info->client_id, bufferIN);
+            int size_buff = strlen(bufferOUT);
             
             AcquireSRWLockShared(&LOCK);
             for(int i=0; i<sizeof_DSA(CONN_A); i++){
-                SOCKET* S = get_elem_DSA(CONN_A, i);
+                CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                if(S!=NULL && *S != INVALID_SOCKET)
-                    send(*S, bufferOUT, strlen(bufferOUT), 0);
+                if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+                    char buff[1024];
+                    memcpy(buff, bufferOUT, size_buff);
+                    cipher_buffer(S, buff, size_buff);
+                    send(S->comm_channel, buff, size_buff, 0);
+                }
 
             }
             ReleaseSRWLockShared(&LOCK);
         }
         else if(bytesRecebidos == 0){
-            printf("Amigo %d desconectou-se", client_id);
+            printf("Amigo %d desconectou-se", client_info->client_id);
         }
         else{
             printf("Erro na conexao: %d\n", WSAGetLastError());
@@ -166,7 +172,7 @@ DWORD WINAPI startClientConversation(LPVOID serv){
     }
     
     AcquireSRWLockExclusive(&LOCK);
-    remove_of_DSA(CONN_A, comm_channel);
+    remove_of_DSA(CONN_A, client_info);
     ReleaseSRWLockExclusive(&LOCK);
 
     return 0;
