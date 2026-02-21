@@ -6,11 +6,6 @@ struct cl_arr{
     int capacity;
 };
 
-void release_client(CLIENT* cl){
-    closesocket(cl->comm_channel); 
-    free(cl);
-}
-
 DYN_CLIENT_ARRAY* init_DSA(){
     DYN_CLIENT_ARRAY* Vec = malloc(sizeof(DYN_CLIENT_ARRAY));
     Vec->capacity = 1;

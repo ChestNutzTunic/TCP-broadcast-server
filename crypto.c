@@ -53,6 +53,8 @@ void cipher_buffer(CLIENT* cl, char* data, int len){
         // Generate KEYSTREAM from sbox state
         int t = (cl->cryp_info.sbox[*i] + cl->cryp_info.sbox[*j]) % 256;
 
+        // bitwise operations
         data[k] ^= cl->cryp_info.sbox[t];
+
     }
 }

@@ -94,9 +94,10 @@ DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
     CLIENT* client_info = client_comm_channel;
 
     // CPU Affinity Logic: Map the client to a specific processor core based on ID
-    // This improves cache locality and reduces context switching overhead
     DWORD core_num = SYS_INFO.dwNumberOfProcessors;
+    
     DWORD core_id = (1 << (client_info->client_id % core_num));
+
     SetThreadAffinityMask(GetCurrentThread(), core_id);
 
     char bufferIN[1024];
@@ -110,12 +111,12 @@ DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
     for(int i=0; i<sizeof_DSA(CONN_A); i++){
         CLIENT* S = get_elem_DSA(CONN_A, i);
 
-        if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+        if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
             char buff[1024];
             int size_buff = strlen(bufferIN);
             strcpy(buff, bufferIN);
             
-            // Encrypt notification for each specific recipient
+            // Encrypt notification for each specific client
             cipher_buffer(S, buff, size_buff);
             send(S->comm_channel, buff, size_buff, 0);
         }
@@ -143,7 +144,7 @@ DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
                 for(int i=0; i<sizeof_DSA(CONN_A); i++){
                     CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                    if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
                         char buff[1024];
                         memcpy(buff, bufferOUT, size_buff);
                         cipher_buffer(S, buff, size_buff);
@@ -163,7 +164,7 @@ DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
             for(int i=0; i<sizeof_DSA(CONN_A); i++){
                 CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                if(S!=NULL && S->comm_channel != INVALID_SOCKET){
+                if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
                     char buff[1024];
                     memcpy(buff, bufferOUT, size_buff);
                     cipher_buffer(S, buff, size_buff);
