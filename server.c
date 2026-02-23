@@ -8,10 +8,12 @@
 #include "crypto.h"
 #include <stdbool.h>
 
-#define client_list_size 5
+#define MAX_THREADS 8
+#define CLIENT_LIST_SIZE 5
+#define MAX_BUFFER_SIZE 1152 // 1024 + 128(extra space for texts headers)
 
 // Function prototype: Thread routine to handle individual client conversations
-DWORD WINAPI startClientConversation(LPVOID client_comm_channel);
+DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
 
 SRWLOCK LOCK;
 DYN_CLIENT_ARRAY* CONN_A = NULL;
@@ -20,15 +22,16 @@ SYSTEM_INFO SYS_INFO;
 int main() {
     // Structure to hold Windows Socket API implementation details
     WSADATA wsa;
+
+     // Initialize Winsock - Requesting version 2.2
+    if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) {
+        return 1; 
+    }
+
     InitializeSRWLock(&LOCK);
 
     // Retrieve hardware info (used for CPU affinity mapping)
     GetSystemInfo(&SYS_INFO);
-    
-    // Initialize Winsock - Requesting version 2.2
-    if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) {
-        return 1; 
-    }
 
     // Initialize the Dynamic Client Array
     CONN_A = init_DSA();
@@ -52,8 +55,22 @@ int main() {
 
     // Put the socket in listening mode
     // client_list_size defines the maximum length of the pending connections queue
-    listen(s, client_list_size);
+    listen(s, CLIENT_LIST_SIZE);
     printf("Waiting for connections...\n");
+
+    // CREATE PORT FOR IOCP
+    HANDLE hPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+
+    for(int i=0; i<MAX_THREADS; i++){
+        HANDLE thread = CreateThread(NULL, 0, processClientConversation, hPort, 0, NULL);
+
+        // CPU Affinity Logic: Map the client to a specific processor core based on ID
+        DWORD core_num = SYS_INFO.dwNumberOfProcessors;
+
+        DWORD core_id = (1 << (i % core_num));
+
+        SetThreadAffinityMask(thread, core_id);
+    }
 
     while(1){
         struct sockaddr_in client_addr;
@@ -63,6 +80,9 @@ int main() {
         SOCKET new_comm = accept(s, (struct sockaddr*)&client_addr, &addr_len);
 
         if(new_comm != INVALID_SOCKET){
+
+            CreateIoCompletionPort((HANDLE)new_comm, hPort, (ULONG_PTR)new_comm, 0);
+
             // Initialize a new CLIENT object with a unique ID and shared secret key
             CLIENT* cl = initialize_client(new_comm, client_total_count++, "MY_MAGIC_KEY");
             
@@ -71,9 +91,13 @@ int main() {
             add_to_DSA(CONN_A, cl);
             ReleaseSRWLockExclusive(&LOCK);
 
-            // Spawn a dedicated thread for the new client
-            HANDLE thr = CreateThread(NULL, 0, &startClientConversation, cl, 0, NULL);
-            CloseHandle(thr); // Handle is closed but the thread continues to run
+            COM_PORT_INFO* PORT_INFO = malloc(sizeof(COM_PORT_INFO));
+            PORT_INFO->client = cl;
+            PORT_INFO->wsabuf.buf = PORT_INFO->buffer;
+            PORT_INFO->wsabuf.len = MAX_BUFFER_SIZE;
+
+            DWORD flags = 0;
+            WSARecv(new_comm, &(PORT_INFO->wsabuf), 1, NULL, &flags, &(PORT_INFO->overlapped), NULL);
         }
     }
 
@@ -88,105 +112,104 @@ int main() {
     return 0;
 }
 
-DWORD WINAPI startClientConversation(LPVOID client_comm_channel){
+// THIS FUNCTION WILL ONLY PROCESS INFORMATION AND DISCLOSE IT TO OTHER CLIENTS
+DWORD WINAPI processClientConversation(LPVOID completion_port){
 
-    // Cast the parameter back to our CLIENT structure
-    CLIENT* client_info = client_comm_channel;
+    HANDLE hPort = completion_port;
+    DWORD bytesTransferred;
+    ULONG_PTR completionKey;
+    LPOVERLAPPED lpOverlapped;
 
-    // CPU Affinity Logic: Map the client to a specific processor core based on ID
-    DWORD core_num = SYS_INFO.dwNumberOfProcessors;
-    
-    DWORD core_id = (1 << (client_info->client_id % core_num));
+    COM_PORT_INFO* client_info;
 
-    SetThreadAffinityMask(GetCurrentThread(), core_id);
+    while(TRUE){
+        bool result = GetQueuedCompletionStatus(hPort, &bytesTransferred, &completionKey, &lpOverlapped, INFINITE);
 
-    char bufferIN[1024];
-    char bufferOUT[1024];
-    int bytesRecebidos;
+        // CONTINUE KEYWORD = JUMPS TO THE NEXT WHILE LOOP
+        if (!result || lpOverlapped == NULL) continue;
 
-    // Notify all active clients about the new user entry
-    snprintf(bufferIN, sizeof(bufferIN), "User %d joined the chat", client_info->client_id);
+        client_info = (COM_PORT_INFO*)lpOverlapped;
 
-    AcquireSRWLockShared(&LOCK);
-    for(int i=0; i<sizeof_DSA(CONN_A); i++){
-        CLIENT* S = get_elem_DSA(CONN_A, i);
-
-        if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
-            char buff[1024];
-            int size_buff = strlen(bufferIN);
-            strcpy(buff, bufferIN);
-            
-            // Encrypt notification for each specific client
-            cipher_buffer(S, buff, size_buff);
-            send(S->comm_channel, buff, size_buff, 0);
-        }
-    }
-    ReleaseSRWLockShared(&LOCK);
-
-    // Main communication loop
-    while(1){
-        memset(bufferIN, 0, sizeof(bufferIN));
-
-        // Read data sent by the client
-        bytesRecebidos = recv(client_info->comm_channel, bufferIN, sizeof(bufferIN)-1, 0);
-
-        if(bytesRecebidos > 0){
+        if(bytesTransferred > 0){
 
             // Decrypt incoming message
-            cipher_buffer(client_info, bufferIN, bytesRecebidos);
+            cipher_buffer(client_info->client, client_info->wsabuf.buf, bytesTransferred);
+
+            // \0 ISN'T TRANSPORTED THROUGH SOCKETS WITH 'SEND', SO IT'S NECESSARY TO DICTATE WHERE THE STRING ENDS
+            client_info->wsabuf.buf[bytesTransferred] = '\0';
+
+            char bufferOUT[MAX_BUFFER_SIZE];
 
             // Handle exit command
-            if (strncmp(bufferIN, "exit", 4) == 0){
-                snprintf(bufferOUT, sizeof(bufferOUT), "User %d has requested to leave.\n", client_info->client_id);
+            if (strncmp(client_info->wsabuf.buf, "exit", 4) == 0){
+                snprintf(bufferOUT, sizeof(bufferOUT), "User %d has requested to leave.\n", client_info->client->client_id);
                 int size_buff = strlen(bufferOUT);
 
                 AcquireSRWLockShared(&LOCK);
                 for(int i=0; i<sizeof_DSA(CONN_A); i++){
                     CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
+                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
+                        char buff[MAX_BUFFER_SIZE];
+
+                        memcpy(buff, bufferOUT, size_buff);
+                        cipher_buffer(S, buff, size_buff);
+
+                        send(S->comm_channel, buff, size_buff, 0);
+                    }
+                }
+                ReleaseSRWLockShared(&LOCK);
+
+                // 2. Remove da lista global (Lock Exclusivo)
+                AcquireSRWLockExclusive(&LOCK);
+                remove_of_DSA(CONN_A, client_info->client);
+                ReleaseSRWLockExclusive(&LOCK);
+
+                free(client_info);
+
+                continue;
+                
+            }
+            else{
+                // Broadcast message to all other users
+                snprintf(bufferOUT, sizeof(bufferOUT), "User %d says:\n %s\n", client_info->client->client_id, client_info->wsabuf.buf);
+                int size_buff = strlen(bufferOUT);
+            
+                AcquireSRWLockShared(&LOCK);
+                for(int i=0; i<sizeof_DSA(CONN_A); i++){
+                    CLIENT* S = get_elem_DSA(CONN_A, i);
+
+                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
                         char buff[1024];
                         memcpy(buff, bufferOUT, size_buff);
                         cipher_buffer(S, buff, size_buff);
                         send(S->comm_channel, buff, size_buff, 0);
                     }
                 }
+
                 ReleaseSRWLockShared(&LOCK);
-
-                break;
             }
-            
-            // Broadcast message to all other users
-            snprintf(bufferOUT, sizeof(bufferOUT), "User %d says:\n %s\n", client_info->client_id, bufferIN);
-            int size_buff = strlen(bufferOUT);
-            
-            AcquireSRWLockShared(&LOCK);
-            for(int i=0; i<sizeof_DSA(CONN_A); i++){
-                CLIENT* S = get_elem_DSA(CONN_A, i);
 
-                if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info){
-                    char buff[1024];
-                    memcpy(buff, bufferOUT, size_buff);
-                    cipher_buffer(S, buff, size_buff);
-                    send(S->comm_channel, buff, size_buff, 0);
-                }
-            }
-            ReleaseSRWLockShared(&LOCK);
         }
-        else if(bytesRecebidos == 0){
-            printf("User %d disconnected", client_info->client_id);
-            break;
+        else if(bytesTransferred == 0) {
+            printf("User %d leaving...\n", client_info->client->client_id);
+
+            // 2. Remove da lista global (Lock Exclusivo)
+            AcquireSRWLockExclusive(&LOCK);
+            remove_of_DSA(CONN_A, client_info->client);
+            ReleaseSRWLockExclusive(&LOCK);
+
+            free(client_info);
+
+            continue; // PULA o WSARecv no final e volta pro GetQueued esperar OUTRO cliente
         }
-        else{
-            printf("Connection error: %d\n", WSAGetLastError());
-            break;
-        }
+
+        memset(&client_info->overlapped, 0, sizeof(client_info->overlapped));
+
+        DWORD flags = 0;
+        WSARecv(client_info->client->comm_channel, &(client_info->wsabuf), 1, NULL, &flags, &(client_info->overlapped), NULL);
     }
     
-    // Clean up client record upon disconnection
-    AcquireSRWLockExclusive(&LOCK);
-    remove_of_DSA(CONN_A, client_info);
-    ReleaseSRWLockExclusive(&LOCK);
 
     return 0;
 }

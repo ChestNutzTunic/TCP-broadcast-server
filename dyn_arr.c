@@ -28,15 +28,14 @@ void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s){
     for(int i=0; i < Vec->size; i++){
         if(Vec->cl_arr[i] == s){
             id = i;
+            release_client(s);
             break;
         }
     }
 
     if(id != -1){
-        if(id < Vec->size - 1){
-            // Shift elements to the left to maintain data locality
-            memmove(&Vec->cl_arr[id], &Vec->cl_arr[id+1], (Vec->size - 1 - id) * sizeof(CLIENT*));
-        }
+        // SWITCHES POSITION WITH THE LAST ELEMENT, SINCE SEQUENCE DOESN'T AFFECT CHAT PERFORMANCE
+        Vec->cl_arr[id] = Vec->cl_arr[Vec->size - 1];
         Vec->size--;
     }
 }

@@ -18,6 +18,15 @@ typedef struct{
     
 } CLIENT;
 
+typedef struct{
+
+    OVERLAPPED overlapped;
+    CLIENT* client;
+    WSABUF wsabuf;
+    char buffer[1024];
+
+} COM_PORT_INFO;
+
 void release_client(CLIENT* cl);
 
 CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY);
