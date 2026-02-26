@@ -7,9 +7,9 @@ DYN_CLIENT_ARRAY* init_DSA();
 
 void add_to_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* new_item);
 
-int sizeof_DSA(DYN_CLIENT_ARRAY* Vec);
+u32 sizeof_DSA(DYN_CLIENT_ARRAY* Vec);
 
-CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, int id);
+CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, u32 id);
 
 void free_DSA(DYN_CLIENT_ARRAY* Vec);
 

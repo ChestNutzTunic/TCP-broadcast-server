@@ -7,19 +7,26 @@
 #include "dyn_arr.h"
 #include "crypto.h"
 #include <stdbool.h>
+#include <Psapi.h> // process status API = necessary for server dashboard
+#include <stdint.h>
 
-#define MAX_THREADS 8
-#define CLIENT_LIST_SIZE 5
+#define MAX_THREADS 16
 #define MAX_BUFFER_SIZE 1152 // 1024 + 128(extra space for texts headers)
 
 // Function prototype: Thread routine to handle individual client conversations
 DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
+DWORD WINAPI update_server_dashboard(LPVOID lpParam);
 
 SRWLOCK LOCK;
 DYN_CLIENT_ARRAY* CONN_A = NULL;
 SYSTEM_INFO SYS_INFO;
 
+volatile LONG client_count;
+
 int main() {
+
+    client_count = 0;
+
     // Structure to hold Windows Socket API implementation details
     WSADATA wsa;
 
@@ -35,7 +42,7 @@ int main() {
 
     // Initialize the Dynamic Client Array
     CONN_A = init_DSA();
-    int client_total_count = 0;
+    u32 client_total_count = 0;
 
     // AF_INET: IPv4 address family
     // SOCK_STREAM: TCP protocol (ensures reliable, ordered data delivery)
@@ -55,13 +62,13 @@ int main() {
 
     // Put the socket in listening mode
     // client_list_size defines the maximum length of the pending connections queue
-    listen(s, CLIENT_LIST_SIZE);
+    listen(s, 1000);
     printf("Waiting for connections...\n");
 
     // CREATE PORT FOR IOCP
     HANDLE hPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 
-    for(int i=0; i<MAX_THREADS; i++){
+    for(u8 i=0; i<MAX_THREADS; i++){
         HANDLE thread = CreateThread(NULL, 0, processClientConversation, hPort, 0, NULL);
 
         // CPU Affinity Logic: Map the client to a specific processor core based on ID
@@ -72,9 +79,12 @@ int main() {
         SetThreadAffinityMask(thread, core_id);
     }
 
+    CreateThread(NULL, 0, update_server_dashboard, NULL, 0, NULL);
+
+
     while(1){
         struct sockaddr_in client_addr;
-        int addr_len = sizeof(client_addr);
+        u32 addr_len = sizeof(client_addr);
 
         // Accept incoming connection request
         SOCKET new_comm = accept(s, (struct sockaddr*)&client_addr, &addr_len);
@@ -90,6 +100,8 @@ int main() {
             AcquireSRWLockExclusive(&LOCK);
             add_to_DSA(CONN_A, cl);
             ReleaseSRWLockExclusive(&LOCK);
+
+            InterlockedIncrement(&client_count);
 
             COM_PORT_INFO* PORT_INFO = malloc(sizeof(COM_PORT_INFO));
             PORT_INFO->client = cl;
@@ -126,7 +138,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
         bool result = GetQueuedCompletionStatus(hPort, &bytesTransferred, &completionKey, &lpOverlapped, INFINITE);
 
         // CONTINUE KEYWORD = JUMPS TO THE NEXT WHILE LOOP
-        if (!result || lpOverlapped == NULL) continue;
+        if (lpOverlapped == NULL) continue;
 
         client_info = (COM_PORT_INFO*)lpOverlapped;
 
@@ -143,10 +155,10 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
             // Handle exit command
             if (strncmp(client_info->wsabuf.buf, "exit", 4) == 0){
                 snprintf(bufferOUT, sizeof(bufferOUT), "User %d has requested to leave.\n", client_info->client->client_id);
-                int size_buff = strlen(bufferOUT);
+                u64 size_buff = strlen(bufferOUT);
 
                 AcquireSRWLockShared(&LOCK);
-                for(int i=0; i<sizeof_DSA(CONN_A); i++){
+                for(u32 i=0; i<sizeof_DSA(CONN_A); i++){
                     CLIENT* S = get_elem_DSA(CONN_A, i);
 
                     if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
@@ -167,20 +179,22 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
                 free(client_info);
 
+                InterlockedDecrement(&client_count);
+
                 continue;
                 
             }
             else{
                 // Broadcast message to all other users
                 snprintf(bufferOUT, sizeof(bufferOUT), "User %d says:\n %s\n", client_info->client->client_id, client_info->wsabuf.buf);
-                int size_buff = strlen(bufferOUT);
+                u64 size_buff = strlen(bufferOUT);
             
                 AcquireSRWLockShared(&LOCK);
-                for(int i=0; i<sizeof_DSA(CONN_A); i++){
+                for(u32 i=0; i<sizeof_DSA(CONN_A); i++){
                     CLIENT* S = get_elem_DSA(CONN_A, i);
 
                     if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
-                        char buff[1024];
+                        char buff[MAX_BUFFER_SIZE];
                         memcpy(buff, bufferOUT, size_buff);
                         cipher_buffer(S, buff, size_buff);
                         send(S->comm_channel, buff, size_buff, 0);
@@ -191,8 +205,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
             }
 
         }
-        else if(bytesTransferred == 0) {
-            printf("User %d leaving...\n", client_info->client->client_id);
+        else if(!result || bytesTransferred == 0) {
 
             // 2. Remove da lista global (Lock Exclusivo)
             AcquireSRWLockExclusive(&LOCK);
@@ -200,6 +213,8 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
             ReleaseSRWLockExclusive(&LOCK);
 
             free(client_info);
+
+            InterlockedDecrement(&client_count);
 
             continue; // PULA o WSARecv no final e volta pro GetQueued esperar OUTRO cliente
         }
@@ -211,5 +226,28 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
     }
     
 
+    return 0;
+}
+
+DWORD WINAPI update_server_dashboard(LPVOID lpParam){
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    while(TRUE){
+        PROCESS_MEMORY_COUNTERS_EX PR_MEM_C;
+        GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&PR_MEM_C, sizeof(PR_MEM_C));
+
+        // Move o cursor para o topo em vez de limpar tudo
+        COORD cursorPosition = {0, 0};
+        SetConsoleCursorPosition(hConsole, cursorPosition);
+
+        printf("====================================================\n");
+        printf("              IOCP SERVER DASHBOARD                 \n");
+        printf("----------------------------------------------------\n");
+        printf(" Connected Clients: %-10ld                     \n", client_count);
+        printf(" Memory Allocated:  %-10ld KB                  \n", PR_MEM_C.PrivateUsage / 1024);
+        printf(" Memory Allocated:  %-10ld KB                  \n", PR_MEM_C.WorkingSetSize / 1024);
+        printf("====================================================\n");
+
+        Sleep(1000);
+    }
     return 0;
 }

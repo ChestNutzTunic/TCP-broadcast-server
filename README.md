@@ -1,5 +1,5 @@
 # TCP-broadcast-server
-Studying TCP/IP fundamentals, implementing a multithreaded server using win32 API and winsock. Developed to study socket programming, memory management, how to avoid race conditions, and cryptography basics.
+Studying TCP/IP fundamentals, implementing a multithreaded server using win32 API and winsock. Developed to study socket programming, memory management, race conditions mitigation, and cryptography basics.
 
 As i enter to my second year as a CS student, i have developed a deep interest for networking. I started this project as a practical companion to my studies of 'TCP/IP Illustrated'. Even though Linux is the industry standard for most server-side applications, i chose to explore the Windows API to understand a little more how high-concurrency and synchronization primitives function within the NT Kernel architecture.
 

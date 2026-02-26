@@ -2,8 +2,8 @@
 
 struct cl_arr{
     CLIENT **cl_arr;
-    int size;
-    int capacity;
+    u64 size;
+    u64 capacity;
 };
 
 DYN_CLIENT_ARRAY* init_DSA(){
@@ -24,8 +24,8 @@ void add_to_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* new_item){
 }
 
 void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s){
-    int id = -1;
-    for(int i=0; i < Vec->size; i++){
+    i32 id = -1;
+    for(u32 i=0; i < Vec->size; i++){
         if(Vec->cl_arr[i] == s){
             id = i;
             release_client(s);
@@ -40,11 +40,11 @@ void remove_of_DSA(DYN_CLIENT_ARRAY* Vec, CLIENT* s){
     }
 }
 
-int sizeof_DSA(DYN_CLIENT_ARRAY* Vec){
+u32 sizeof_DSA(DYN_CLIENT_ARRAY* Vec){
     return Vec->size;
 }
 
-CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, int id){
+CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, u32 id){
     if(id >= 0 && id < Vec->size)
         return (Vec->cl_arr[id]);
 
@@ -52,7 +52,7 @@ CLIENT* get_elem_DSA(DYN_CLIENT_ARRAY* Vec, int id){
 }
 
 void free_DSA(DYN_CLIENT_ARRAY* Vec){
-    for(int i=0; i<Vec->size; i++)
+    for(u32 i=0; i<Vec->size; i++)
         release_client(Vec->cl_arr[i]);
     
     free(Vec->cl_arr);
