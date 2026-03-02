@@ -5,7 +5,7 @@
 #include <winsock2.h>
 #include <stdint.h>
 
-typedef int8_t i8;
+typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
@@ -25,8 +25,14 @@ typedef struct{
     SOCKET comm_channel;
     DWORD client_id;
     CRYPTO_INFO cryp_info;
+    volatile LONG ref_counting;
     
 } CLIENT;
+
+typedef enum{
+    OP_WRITE,
+    OP_WRITE_DONE,
+} OP_INFO;
 
 typedef struct{
 
@@ -34,10 +40,9 @@ typedef struct{
     CLIENT* client;
     WSABUF wsabuf;
     char buffer[1024];
+    OP_INFO operation_info;
 
 } COM_PORT_INFO;
-
-void release_client(CLIENT* cl);
 
 CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY);
 

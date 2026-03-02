@@ -8,10 +8,9 @@
 #include "crypto.h"
 #include <stdbool.h>
 #include <Psapi.h> // process status API = necessary for server dashboard
-#include <stdint.h>
 
 #define MAX_THREADS 16
-#define MAX_BUFFER_SIZE 1152 // 1024 + 128(extra space for texts headers)
+#define MAX_BUFFER_SIZE 1152 // 1024 + 128 (extra space for texts headers)
 
 // Function prototype: Thread routine to handle individual client conversations
 DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
@@ -21,7 +20,7 @@ SRWLOCK LOCK;
 DYN_CLIENT_ARRAY* CONN_A = NULL;
 SYSTEM_INFO SYS_INFO;
 
-volatile LONG client_count;
+volatile long client_count;
 
 int main() {
 
@@ -41,7 +40,7 @@ int main() {
     GetSystemInfo(&SYS_INFO);
 
     // Initialize the Dynamic Client Array
-    CONN_A = init_DSA();
+    CONN_A = init_DCA();
     u32 client_total_count = 0;
 
     // AF_INET: IPv4 address family
@@ -98,7 +97,7 @@ int main() {
             
             // Critical Section: Thread-safe addition to the connection array
             AcquireSRWLockExclusive(&LOCK);
-            add_to_DSA(CONN_A, cl);
+            add_to_DCA(CONN_A, cl);
             ReleaseSRWLockExclusive(&LOCK);
 
             InterlockedIncrement(&client_count);
@@ -115,7 +114,7 @@ int main() {
 
     // Resource cleanup
     AcquireSRWLockExclusive(&LOCK);
-    free_DSA(CONN_A);
+    free_DCA(CONN_A);
     ReleaseSRWLockExclusive(&LOCK);
 
     closesocket(s);
@@ -142,95 +141,172 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
         client_info = (COM_PORT_INFO*)lpOverlapped;
 
-        if(bytesTransferred > 0){
+        // SWITCH CASE TO ORGANIZE WSASend(1) and WSARecv(0)
+        switch(client_info->operation_info){
 
-            // Decrypt incoming message
-            cipher_buffer(client_info->client, client_info->wsabuf.buf, bytesTransferred);
+            case 0: // WRITE OPERATION
+                if(result && bytesTransferred > 0){
 
-            // \0 ISN'T TRANSPORTED THROUGH SOCKETS WITH 'SEND', SO IT'S NECESSARY TO DICTATE WHERE THE STRING ENDS
-            client_info->wsabuf.buf[bytesTransferred] = '\0';
+                    // Decrypt incoming message
+                    cipher_buffer(client_info->client, client_info->wsabuf.buf, bytesTransferred);
 
-            char bufferOUT[MAX_BUFFER_SIZE];
+                    // \0 ISN'T TRANSPORTED THROUGH SOCKETS WITH 'SEND', SO IT'S NECESSARY TO DICTATE WHERE THE STRING ENDS
+                    client_info->wsabuf.buf[bytesTransferred] = '\0';
 
-            // Handle exit command
-            if (strncmp(client_info->wsabuf.buf, "exit", 4) == 0){
-                snprintf(bufferOUT, sizeof(bufferOUT), "User %d has requested to leave.\n", client_info->client->client_id);
-                u64 size_buff = strlen(bufferOUT);
+                    char bufferOUT[MAX_BUFFER_SIZE];
 
-                AcquireSRWLockShared(&LOCK);
-                for(u32 i=0; i<sizeof_DSA(CONN_A); i++){
-                    CLIENT* S = get_elem_DSA(CONN_A, i);
+                    // Handle exit command
+                    if (strncmp(client_info->wsabuf.buf, "exit", 4) == 0){
+                        snprintf(bufferOUT, sizeof(bufferOUT), "User %d has requested to leave.\n", client_info->client->client_id);
+                        u64 size_buff = strlen(bufferOUT);
 
-                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
-                        char buff[MAX_BUFFER_SIZE];
+                        AcquireSRWLockShared(&LOCK);
+                        for(u32 i=0; i<sizeof_DCA(CONN_A); i++){
+                            CLIENT* S = get_elem_DCA(CONN_A, i);
 
-                        memcpy(buff, bufferOUT, size_buff);
-                        cipher_buffer(S, buff, size_buff);
+                            if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
+                                char buff[MAX_BUFFER_SIZE];
 
-                        send(S->comm_channel, buff, size_buff, 0);
+                                memcpy(buff, bufferOUT, size_buff);
+                                // CIPHER MESSAGE
+                                cipher_buffer(S, buff, size_buff);
+
+                                // COPYING COMMUNICATION PORT INFO
+                                COM_PORT_INFO* write_context = malloc(sizeof(COM_PORT_INFO));
+                                write_context->client = S;
+                                write_context->operation_info = OP_WRITE_DONE;
+
+                                write_context->wsabuf.buf = write_context->buffer;
+                                write_context->wsabuf.len = size_buff;
+                                memset(&write_context->overlapped, 0, sizeof(OVERLAPPED));
+
+                                memcpy(write_context->buffer, buff, size_buff);
+                                
+                                // MESSAGES COUNT (WHEN 0, FREE CLIENT)
+                                InterlockedIncrement(&(S->ref_counting));
+
+                                // IF WSASend is successful, returns 0, otherwise, returns SOCKET_ERROR (-1)
+                                int res = WSASend(S->comm_channel, &(write_context->wsabuf), 1, NULL, 0, &(write_context->overlapped), NULL);
+                                if(res == SOCKET_ERROR){
+                                    int err = WSAGetLastError();
+                                    if(err != WSA_IO_PENDING)
+                                        // IMEDIATE ERROR, DECREMENT COUNTER
+                                        InterlockedDecrement(&(S->ref_counting));
+                                        free(write_context);
+                                }
+                                // IF res == 0 or lastError == WSA_IO_PENDING, the information is still being processed by the kernel
+
+                            }
+                        }
+                        ReleaseSRWLockShared(&LOCK);
+
+                        AcquireSRWLockExclusive(&LOCK);
+                        remove_of_DCA(CONN_A, client_info->client);
+                        ReleaseSRWLockExclusive(&LOCK);
+                        InterlockedDecrement(&client_count);
+
+                        // Since this if statement handles the exit of clients, it's necessary to decrement the reference counting
+                        if(InterlockedDecrement(&(client_info->client->ref_counting)) == 0){
+                            free(client_info->client);
+                        }
+
+                        free(client_info);
+
+                        continue;
+                        
                     }
+                    else{
+
+                        // Broadcast message to all other users
+                        snprintf(bufferOUT, sizeof(bufferOUT), "User %d says:\n %s\n", client_info->client->client_id, client_info->wsabuf.buf);
+                        u64 size_buff = strlen(bufferOUT);
+                    
+                        AcquireSRWLockShared(&LOCK);
+                        for(u32 i=0; i<sizeof_DCA(CONN_A); i++){
+                            CLIENT* S = get_elem_DCA(CONN_A, i);
+
+                            if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
+                                char buff[MAX_BUFFER_SIZE];
+                                memcpy(buff, bufferOUT, size_buff);
+                                // CIPHER MESSAGE
+                                cipher_buffer(S, buff, size_buff);
+                                
+                                // COPYING COMMUNICATION PORT INFO
+                                COM_PORT_INFO* write_context = malloc(sizeof(COM_PORT_INFO));
+                                write_context->client = S;
+                                write_context->operation_info = OP_WRITE_DONE;
+
+                                write_context->wsabuf.buf = write_context->buffer;
+                                write_context->wsabuf.len = size_buff;
+                                memset(&write_context->overlapped, 0, sizeof(OVERLAPPED));
+
+                                memcpy(write_context->buffer, buff, size_buff);
+
+                                // MESSAGES COUNT (WHEN 0, FREE CLIENT)
+                                InterlockedIncrement(&(S->ref_counting));
+
+                                // IF WSASend is successful, returns 0, if not, returns SOCKET_ERROR (-1)
+                                int res = WSASend(S->comm_channel, &(write_context->wsabuf), 1, NULL, 0, &(write_context->overlapped), NULL);
+                                if(res == SOCKET_ERROR){
+                                    int err = WSAGetLastError();
+                                    if(err != WSA_IO_PENDING)
+                                        // IMEDIATE ERROR, DECREMENT COUNTER
+                                        InterlockedDecrement(&(S->ref_counting));
+                                        free(write_context);
+                                }
+                                // IF res == 0 or lastError == WSA_IO_PENDING, the information is still being processed by the kernel
+
+                            }
+                        }
+                        ReleaseSRWLockShared(&LOCK);
+
+                    }
+
                 }
-                ReleaseSRWLockShared(&LOCK);
+                else{
 
-                // 2. Remove da lista global (Lock Exclusivo)
-                AcquireSRWLockExclusive(&LOCK);
-                remove_of_DSA(CONN_A, client_info->client);
-                ReleaseSRWLockExclusive(&LOCK);
+                    AcquireSRWLockExclusive(&LOCK);
+                    remove_of_DCA(CONN_A, client_info->client);
+                    ReleaseSRWLockExclusive(&LOCK);
+                    InterlockedDecrement(&client_count);
 
+                    if(InterlockedDecrement(&client_info->client->ref_counting) == 0){
+                        free(client_info->client);
+                    }
+                    
+                    free(client_info); 
+                    continue;
+
+                }
+
+                memset(&client_info->overlapped, 0, sizeof(client_info->overlapped));
+
+                DWORD flags = 0;
+                WSARecv(client_info->client->comm_channel, &(client_info->wsabuf), 1, NULL, &flags, &(client_info->overlapped), NULL);
+            
+                break;
+
+            case 1: // WRITE_DONE OPERATION
+
+                //  IF REFERENCE_COUNTING REACHES 0, THEN ALL PENDING WSASends HAVE COMPLETED
+                if(InterlockedDecrement(&(client_info->client->ref_counting)) == 0){
+                    free(client_info->client);
+                }
+
+                // SINCE IT'S A WRITE_DONE OPERATION, CLIENT_INFO IS JUST THE WRITE CONTEXT
                 free(client_info);
 
-                InterlockedDecrement(&client_count);
-
-                continue;
-                
-            }
-            else{
-                // Broadcast message to all other users
-                snprintf(bufferOUT, sizeof(bufferOUT), "User %d says:\n %s\n", client_info->client->client_id, client_info->wsabuf.buf);
-                u64 size_buff = strlen(bufferOUT);
-            
-                AcquireSRWLockShared(&LOCK);
-                for(u32 i=0; i<sizeof_DSA(CONN_A); i++){
-                    CLIENT* S = get_elem_DSA(CONN_A, i);
-
-                    if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
-                        char buff[MAX_BUFFER_SIZE];
-                        memcpy(buff, bufferOUT, size_buff);
-                        cipher_buffer(S, buff, size_buff);
-                        send(S->comm_channel, buff, size_buff, 0);
-                    }
-                }
-
-                ReleaseSRWLockShared(&LOCK);
-            }
+                break;
 
         }
-        else if(!result || bytesTransferred == 0) {
-
-            // 2. Remove da lista global (Lock Exclusivo)
-            AcquireSRWLockExclusive(&LOCK);
-            remove_of_DSA(CONN_A, client_info->client);
-            ReleaseSRWLockExclusive(&LOCK);
-
-            free(client_info);
-
-            InterlockedDecrement(&client_count);
-
-            continue; // PULA o WSARecv no final e volta pro GetQueued esperar OUTRO cliente
-        }
-
-        memset(&client_info->overlapped, 0, sizeof(client_info->overlapped));
-
-        DWORD flags = 0;
-        WSARecv(client_info->client->comm_channel, &(client_info->wsabuf), 1, NULL, &flags, &(client_info->overlapped), NULL);
     }
-    
 
     return 0;
 }
 
 DWORD WINAPI update_server_dashboard(LPVOID lpParam){
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    system("cls");
     while(TRUE){
         PROCESS_MEMORY_COUNTERS_EX PR_MEM_C;
         GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&PR_MEM_C, sizeof(PR_MEM_C));
@@ -243,8 +319,8 @@ DWORD WINAPI update_server_dashboard(LPVOID lpParam){
         printf("              IOCP SERVER DASHBOARD                 \n");
         printf("----------------------------------------------------\n");
         printf(" Connected Clients: %-10ld                     \n", client_count);
-        printf(" Memory Allocated:  %-10ld KB                  \n", PR_MEM_C.PrivateUsage / 1024);
-        printf(" Memory Allocated:  %-10ld KB                  \n", PR_MEM_C.WorkingSetSize / 1024);
+        printf(" Memory Allocated:  %-10lu KB                  \n", PR_MEM_C.PrivateUsage / 1024);
+        printf(" Total Memory Allocated:  %-10lu KB                  \n", PR_MEM_C.WorkingSetSize / 1024);
         printf("====================================================\n");
 
         Sleep(1000);

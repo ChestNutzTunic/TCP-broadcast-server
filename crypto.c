@@ -1,10 +1,5 @@
 #include "crypto.h"
 
-void release_client(CLIENT* cl){
-    closesocket(cl->comm_channel); 
-    free(cl);
-}
-
 CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY){
     CLIENT* cl = malloc(sizeof(CLIENT));
     cl->comm_channel = comm;
@@ -14,6 +9,8 @@ CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY){
     for(u16 i=0; i<256; i++){
         cl->cryp_info.sbox[i] = i;
     }
+
+    cl->ref_counting = 1;
     
     u32 key_lenght = strlen(KEY);
     u16 j=0;

@@ -32,7 +32,7 @@ int main() {
     // Extract the list of IPs (handles multiple interfaces like Wi-Fi/Ethernet)
     addr_list = (struct in_addr **)hostData->h_addr_list;
             
-    for(int i = 0; addr_list[i] != NULL; i++) {
+    for(u8 i = 0; addr_list[i] != NULL; i++) {
         // Convert binary IP to string format for display
         printf("Local IP: %s\n", inet_ntoa(*addr_list[i]));
     }
@@ -71,7 +71,7 @@ int main() {
 DWORD WINAPI receiveMessage(LPVOID M){
     CLIENT* S = M;
     char bufferIN[1024];
-    int bytesReceived;
+    u64 bytesReceived;
 
     while(1){
         memset(bufferIN, 0, sizeof(bufferIN));
@@ -97,7 +97,6 @@ DWORD WINAPI receiveMessage(LPVOID M){
 DWORD WINAPI sendMessage(LPVOID M){
     CLIENT *S = M;
     char bufferOUT[1024];
-    int bytesSent;
 
     while(1){
         memset(bufferOUT, 0, sizeof(bufferOUT));
@@ -109,7 +108,7 @@ DWORD WINAPI sendMessage(LPVOID M){
         cipher_buffer(S, bufferOUT, size_buff);
         LeaveCriticalSection(&CS);
         
-        bytesSent = send(S->comm_channel, bufferOUT, size_buff, 0);
+        send(S->comm_channel, bufferOUT, size_buff, 0);
     }
     return 0;
 }
