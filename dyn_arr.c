@@ -66,3 +66,46 @@ void free_DCA(DYN_CLIENT_ARRAY* Vec){
     free(Vec->cl_arr);
     free(Vec);
 }
+
+// FUNCTION FOR GETTING PRE-FORMATTED STRING AND BROADCASTING IT
+void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* bufferOUT, int size_buff){
+
+    for(u32 i=0; i<sizeof_DCA(DCA); i++){
+        CLIENT* S = get_elem_DCA(DCA, i);
+
+        if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
+            char buff[MAX_BUFFER_SIZE];
+
+            memcpy(buff, bufferOUT, size_buff);
+            // CIPHER MESSAGE
+            cipher_buffer(S, buff, size_buff);
+
+            // COPYING COMMUNICATION PORT INFO
+            COM_PORT_INFO* write_context = malloc(sizeof(COM_PORT_INFO));
+            write_context->client = S;
+            write_context->operation_info = OP_WRITE_DONE;
+
+            write_context->wsabuf.buf = write_context->buffer;
+            write_context->wsabuf.len = size_buff;
+            memset(&write_context->overlapped, 0, sizeof(OVERLAPPED));
+
+            memcpy(write_context->buffer, buff, size_buff);
+            
+            // MESSAGES COUNT (WHEN 0, FREE CLIENT)
+            InterlockedIncrement(&(S->ref_counting));
+
+            // IF WSASend is successful, returns 0, otherwise, returns SOCKET_ERROR (-1)
+            int res = WSASend(S->comm_channel, &(write_context->wsabuf), 1, NULL, 0, &(write_context->overlapped), NULL);
+            if(res == SOCKET_ERROR){
+                int err = WSAGetLastError();
+                if(err != WSA_IO_PENDING)
+                    // IMEDIATE ERROR, DECREMENT COUNTER
+                    InterlockedDecrement(&(S->ref_counting));
+                    free(write_context);
+            }
+            // IF res == 0 or lastError == WSA_IO_PENDING, the information is still being processed by the kernel
+
+        }
+    }
+
+}

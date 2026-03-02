@@ -14,6 +14,8 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+#define MAX_BUFFER_SIZE 1152 // 1024 + 128 (extra space for texts headers)
+
 typedef struct{
     unsigned char sbox[256]; 
     u16 crypto_i;
