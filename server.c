@@ -165,6 +165,8 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
                         ReleaseSRWLockShared(&LOCK);
 
+
+                        // LIBERATE FROM DYNAMIC ARRAY (ONLY CLOSES SOCKET)
                         AcquireSRWLockExclusive(&LOCK);
                         remove_of_DCA(CONN_A, client_info->client);
                         ReleaseSRWLockExclusive(&LOCK);
