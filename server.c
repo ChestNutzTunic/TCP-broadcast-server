@@ -112,7 +112,6 @@ int main() {
 
             DWORD flags = 0;
             WSARecv(new_comm, &(PORT_INFO->wsabuf), 1, NULL, &flags, &(PORT_INFO->overlapped), NULL);
-            printf("teste");
         }
     }
 
