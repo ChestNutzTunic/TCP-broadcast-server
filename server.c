@@ -78,6 +78,7 @@ int main() {
         SetThreadAffinityMask(thread, core_id);
     }
 
+    CreateThread(NULL, 0, update_server_dashboard, NULL, 0, NULL);
 
     while(1){
         struct sockaddr_in client_addr;
