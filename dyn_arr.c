@@ -81,7 +81,7 @@ void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* b
             cipher_buffer(S, buff, size_buff);
 
             // COPYING COMMUNICATION PORT INFO
-            COM_PORT_INFO* write_context = malloc(sizeof(COM_PORT_INFO));
+            COM_PORT_INFO* write_context = Arena_Pop(arena_header);
             write_context->client = S;
             write_context->operation_info = OP_WRITE_DONE;
 

@@ -5,7 +5,6 @@
 // Necessary for SRWLock usage
 
 #include "dyn_arr.h"
-#include "crypto.h"
 #include <stdbool.h>
 #include <Psapi.h> // process status API = necessary for server dashboard
 
@@ -24,6 +23,8 @@ volatile long client_count;
 int main() {
 
     client_count = 0;
+
+    arena_header = Arena_Init(sizeof(COM_PORT_INFO));    
 
     // Structure to hold Windows Socket API implementation details
     WSADATA wsa;
@@ -77,8 +78,6 @@ int main() {
         SetThreadAffinityMask(thread, core_id);
     }
 
-    CreateThread(NULL, 0, update_server_dashboard, NULL, 0, NULL);
-
 
     while(1){
         struct sockaddr_in client_addr;
@@ -101,13 +100,18 @@ int main() {
 
             InterlockedIncrement(&client_count);
 
-            COM_PORT_INFO* PORT_INFO = malloc(sizeof(COM_PORT_INFO));
+            COM_PORT_INFO* PORT_INFO = Arena_Pop(arena_header);
+
+            memset(&(PORT_INFO->overlapped), 0, sizeof(OVERLAPPED));
+
             PORT_INFO->client = cl;
+            PORT_INFO->operation_info = 0;
             PORT_INFO->wsabuf.buf = PORT_INFO->buffer;
             PORT_INFO->wsabuf.len = MAX_BUFFER_SIZE;
 
             DWORD flags = 0;
             WSARecv(new_comm, &(PORT_INFO->wsabuf), 1, NULL, &flags, &(PORT_INFO->overlapped), NULL);
+            printf("teste");
         }
     }
 
@@ -144,6 +148,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
         switch(client_info->operation_info){
 
             case 0: // WRITE OPERATION
+            
                 if(result && bytesTransferred > 0){
 
                     // Decrypt incoming message
@@ -177,7 +182,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                             free(client_info->client);
                         }
 
-                        free(client_info);
+                        Arena_Push(arena_header, (void*)client_info);
 
                         continue;
                         
@@ -208,7 +213,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                         free(client_info->client);
                     }
                     
-                    free(client_info); 
+                    Arena_Push(arena_header, (void*)client_info);
                     continue;
 
                 }
@@ -228,7 +233,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                 }
 
                 // SINCE IT'S A WRITE_DONE OPERATION, CLIENT_INFO IS JUST THE WRITE CONTEXT
-                free(client_info);
+                Arena_Push(arena_header, (void*)client_info);
 
                 break;
 

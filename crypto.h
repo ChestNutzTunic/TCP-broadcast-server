@@ -1,9 +1,10 @@
 #pragma once
 #include <stdlib.h>
 #include <stdio.h>
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <stdint.h>
+#include <stdalign.h>
 
 typedef int16_t i16;
 typedef int32_t i32;
@@ -41,7 +42,7 @@ typedef struct{
     OVERLAPPED overlapped;
     CLIENT* client;
     WSABUF wsabuf;
-    char buffer[1024];
+    char buffer[MAX_BUFFER_SIZE];
     OP_INFO operation_info;
 
 } COM_PORT_INFO;

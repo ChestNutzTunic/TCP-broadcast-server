@@ -1,5 +1,6 @@
 #pragma once
 #include "crypto.h"
+#include "arena.h"
 
 typedef struct cl_arr DYN_CLIENT_ARRAY;
 
