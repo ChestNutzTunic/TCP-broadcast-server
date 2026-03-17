@@ -17,7 +17,6 @@ This was the first project that made me go as far as learning x86_64 assembly to
 - Custom x86_64 Assembly: Since standard atomic intrinsics can be restrictive, i wasn't able to use the function that was necessary for atomic compare/exchange of the linked list header, i wrote a custom _InterlockedCompareExchange128 (using lock cmpxchg16b) in NASM to handle the ABA problem;
 
 ### Things that i would like to implement furthermore in this project:
-- A buffer pool to minimize malloc operations;
 - A timer to identify dead-connections, inactive users, etc. Mitigating memory leak;
 - Implementing server-side commands;
 - Implementing file transfer;
