@@ -4,7 +4,7 @@ alignas(16) ARENA_HEADER* arena_header = NULL;
 
 ARENA_HEADER* Arena_Init(size_t block_size){
 
-    u32 mem_area = 40*PAGE_SIZE;
+    u32 mem_area = MB;
 
     // ASKING FOR 10 "PAGES" (smallest unit of measurement that the operating system can manage)
     // MEM_RESERVE | MEM_COMMIT IS NECESSARY, AS WINDOWS KERNEL WONT ALLOW TO COMMIT IF YOU DIDN'T RESERVE FIRST
@@ -46,14 +46,14 @@ ARENA_HEADER* Arena_Init(size_t block_size){
     return aH;
 }
 
-void Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size){
+ARENA_HEADER* Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size){
     
     size_t b_size = arena_head->block_size; 
     
     // Allocates new memory block
     void* new_mem = VirtualAlloc(NULL, buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if(!new_mem) 
-        return;
+        return NULL;
 
     u32 total_blocks = buffer_size / b_size;
     
@@ -68,6 +68,8 @@ void Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size){
         curr += b_size;
     }
 
+    int retry_count = 1;
+
     // Now we must compare
     alignas(16) u64 snapshot[2];
     while (1) {
@@ -78,14 +80,23 @@ void Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size){
         *(void**)curr = (void*)snapshot[0];
 
         // Now we compare arena_head to the snapshot, if equal, it means no other thread has changed it, so we can make it point to the new memory buffer
-        if (CompareExchange16((volatile u64*)arena_head, snapshot[1] + 1, (u64)first_block, snapshot)) {
+        if (CompareExchange16((volatile u64*)arena_head, snapshot[1] + 1, (u64)first_block, snapshot))
             break;
-        }
-        // if failed, we try again
+        else
+            for(int j=0; j<retry_count; j++)  // SEQUENTLY LONGER PAUSES FOR EACH FAILURE
+                _mm_pause();
+
+        if(retry_count<64)
+            retry_count++;
     }
+
+    return arena_head;
 }
 
 void* Arena_Pop(ARENA_HEADER* arena_header){
+    
+    int retry_count = 1;
+    
     // basically a void* array with 2 elements, since pointers also occupate 64 bits
     alignas(16) u64 snapshot[2];
 
@@ -98,8 +109,9 @@ void* Arena_Pop(ARENA_HEADER* arena_header){
         void* block_to_return = (void*)snapshot[0];
 
         if(block_to_return == NULL){
-            Arena_Expand(arena_header, PAGE_SIZE);
-            
+            arena_header = Arena_Expand(arena_header, MB);
+            if(arena_header == NULL)
+                return NULL; // error
             continue;
         }
 
@@ -111,11 +123,18 @@ void* Arena_Pop(ARENA_HEADER* arena_header){
         int success = CompareExchange16((volatile LONG64*)arena_header, (LONG64)(snapshot[1]+1), (LONG64)next_block, snapshot);
         if(success)
             return block_to_return;
+        else
+            for(int j=0; j<retry_count; j++)  // SEQUENTLY LONGER PAUSES FOR EACH FAILURE
+                _mm_pause();
 
+        if(retry_count<64)
+            retry_count++;
     }
 }
 
 void Arena_Push(ARENA_HEADER* arena_header, void* block){
+    int retry_count = 1;
+    
     alignas(16) u64 snapshot[2];
     while(1){
         // FETCHING THE NEXT_MEM_BLOCK ADDRESS AS A 64 BIT NUMBER
@@ -126,8 +145,13 @@ void Arena_Push(ARENA_HEADER* arena_header, void* block){
 
         int success = CompareExchange16((volatile LONG64*)arena_header, (LONG64)(snapshot[1]+1), (LONG64)block, snapshot);
 
-        if(success){
+        if(success)
             return;
-        }
+        else
+            for(int j=0; j<retry_count; j++)
+                _mm_pause();
+
+        if(retry_count<64)
+            retry_count++;
     }
 }

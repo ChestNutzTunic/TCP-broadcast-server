@@ -10,7 +10,6 @@
 
 #define MAX_THREADS 16
 
-// Function prototype: Thread routine to handle individual client conversations
 DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
 DWORD WINAPI update_server_dashboard(LPVOID lpParam);
 
@@ -26,41 +25,32 @@ int main() {
 
     arena_header = Arena_Init(sizeof(COM_PORT_INFO));    
 
-    // Structure to hold Windows Socket API implementation details
     WSADATA wsa;
 
-     // Initialize Winsock - Requesting version 2.2
     if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) {
         return 1; 
     }
 
     InitializeSRWLock(&LOCK);
 
-    // Retrieve hardware info (used for CPU affinity mapping)
     GetSystemInfo(&SYS_INFO);
 
-    // Initialize the Dynamic Client Array
     CONN_A = init_DCA();
     u32 client_total_count = 0;
 
-    // AF_INET: IPv4 address family
-    // SOCK_STREAM: TCP protocol (ensures reliable, ordered data delivery)
     SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == INVALID_SOCKET) {
         printf("Error creating socket\n");
         return 1;
     }
 
-    struct sockaddr_in server; // Structure for IP and Port configuration
+    struct sockaddr_in server;
     server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_ANY; // Listen on all available network interfaces
-    server.sin_port = htons(8080);       // Convert port to Network Byte Order (Big Endian)
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(8080);
 
-    // Associate the socket with the local address and port
     bind(s, (struct sockaddr *)&server, sizeof(server));
 
-    // Put the socket in listening mode
-    // client_list_size defines the maximum length of the pending connections queue
     listen(s, 1000);
     printf("Waiting for connections...\n");
 
@@ -70,7 +60,7 @@ int main() {
     for(u8 i=0; i<MAX_THREADS; i++){
         HANDLE thread = CreateThread(NULL, 0, processClientConversation, hPort, 0, NULL);
 
-        // CPU Affinity Logic: Map the client to a specific processor core based on ID
+        // You must use a bitmap to set a thread to a specific CPU core
         DWORD core_num = SYS_INFO.dwNumberOfProcessors;
 
         DWORD core_id = (1 << (i % core_num));

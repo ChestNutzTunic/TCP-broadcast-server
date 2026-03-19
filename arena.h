@@ -1,8 +1,9 @@
 #pragma once
 #include "crypto.h"
+#include <immintrin.h>
 
 // EACH PAGE IS 4KB
-#define PAGE_SIZE 4096
+#define MB (1024*1024)
 
 // THIS ARENA WILL BE SPECIFIC FOR COM_PORT_INFO
 
@@ -22,4 +23,4 @@ extern ARENA_HEADER* arena_header;
 ARENA_HEADER* Arena_Init(size_t block_size);
 void* Arena_Pop(ARENA_HEADER* arena_header);
 void Arena_Push(ARENA_HEADER* arena_header, void* block);
-void Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size);
+ARENA_HEADER* Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size);
