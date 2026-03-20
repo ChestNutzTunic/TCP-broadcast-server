@@ -9,16 +9,32 @@ As i enter to my second year as a CS student, i have developed a deep interest f
 Initially, my idea was to create a thread for each new client to run a basic communication function. However, it became clear that this would waste a significant amount of memory. Instead, I implemented a thread pool with IOCP (Input/Output Completion Ports) to handle WSASend() and WSArecv() operations with minimal performance deterioration.
 Implementing x86 Assembly was challenging, but also very rewarding, truly an experience :D.
 
-### This project includes:
+## This project includes:
 - A simple RC4 based stream cipher with a substitution box for each client, ensuring secure communication;
 - SRWLocks for optimized thread read/write usage and Critical Sections on the client-side to protect the encryption state during full-duplex communication;
 - Reference Counting for Completion Ports memory management, more specifically, to manage the CLIENT object life cycle;
-- A Lock-Free Buffer Arena to eliminate the overhead of malloc/free. It uses a singly linked list, completely inspired by sList_Header, a known and very used structure given by the WIN32 API;
+- A lock-free buffer arena using a free list (inspired by slist_header) and linear backoff to reduce CAS(Compare and Swap) contention under high thread concurrency;
 - Custom x86_64 Assembly: Since standard atomic intrinsics can be restrictive, i wasn't able to use the function that was necessary for atomic compare/exchange of the linked list header, i wrote a custom _InterlockedCompareExchange128 (using lock cmpxchg16b) in NASM to handle the ABA problem;
 
-### Things that i would like to implement furthermore in this project:
+## Things that i would like to implement furthermore in this project:
 - A pseudo-random key generator for encrypting data;
 - A timer to identify dead-connections, inactive users, etc. Mitigating memory leak;
 - Implementing server-side commands;
 - Implementing file transfer;
 - Checking how many pending messages a client has, and either stop sending anything, or disconnect him for excessive lag, as it would consume unnecessary RAM;
+
+## How to compile
+### Compiling the cmpxchg.asm
+To compile the x86 assembly, you must first install nasm.
+Then, use:
+```bash
+nasm -f win64 cmpxchg16.asm -o cmpxchg16.o
+```
+ 
+### Compiling everything together
+To compile everything, after already compiling the assembly file, use:
+```bash
+gcc -g server.c dyn_arr.c crypto.c arena.c cmpxchg16.o -o server -lws2_32 -lpsapi 
+```
+Without -lws2_32, you won't be able to link ws2_32.dll, and by doing so, you will not be able to use any socket-based functionality.
+And without -lpsapi, you won't be able to link psapi.dll, therefore, you will not be able to use any process-status-api functionality.
