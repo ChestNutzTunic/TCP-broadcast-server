@@ -25,10 +25,11 @@ typedef struct{
 } CRYPTO_INFO;
 
 typedef struct{
-    SOCKET comm_channel;
-    DWORD client_id;
     CRYPTO_INFO cryp_info;
+    CRITICAL_SECTION CS_lock;
+    SOCKET comm_channel;
     volatile LONG ref_counting;
+    DWORD client_id;
     
 } CLIENT;
 
@@ -40,9 +41,9 @@ typedef enum{
 typedef struct{
 
     OVERLAPPED overlapped;
+    char buffer[MAX_BUFFER_SIZE];
     CLIENT* client;
     WSABUF wsabuf;
-    char buffer[MAX_BUFFER_SIZE];
     OP_INFO operation_info;
 
 } COM_PORT_INFO;

@@ -15,7 +15,7 @@ typedef struct{
     void* next_mem_block;
     u64 sequence;
     u64 block_size;
-    u64 padding;
+    u64 blocks_left;
 } ARENA_HEADER;
 
 extern ARENA_HEADER* arena_header;
@@ -23,4 +23,4 @@ extern ARENA_HEADER* arena_header;
 ARENA_HEADER* Arena_Init(size_t block_size);
 void* Arena_Pop(ARENA_HEADER* arena_header);
 void Arena_Push(ARENA_HEADER* arena_header, void* block);
-ARENA_HEADER* Arena_Expand(ARENA_HEADER* arena_head, u32 buffer_size);
+void Arena_Expand(ARENA_HEADER* arena_head);

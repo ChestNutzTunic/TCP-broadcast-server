@@ -16,8 +16,8 @@ CompareExchange16:
     mov rbx, r8      ; RBX = novo LOW
     mov rcx, rdx      ; RCX = novo HIGH
 
-    mov rax, [r9]   ; saving in RDX:RAX the value of the snapshot
-    mov rdx, [r9+8]
+    mov rax, [r9]   ; RAX = snapshot pointer
+    mov rdx, [r9+8] ; RDX = snapshot sequence
 
     ; this is going to compare the value in rdi with RDX:RAX, if true, switch rdi with RCX:RBX
     ; if not, switch RDX:RAX with the value of rdi

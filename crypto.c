@@ -5,6 +5,8 @@ CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY){
     cl->comm_channel = comm;
     cl->client_id = id;
 
+    InitializeCriticalSection(&(cl->CS_lock));
+
     // Initialize the Substitution Box
     for(u16 i=0; i<256; i++){
         cl->cryp_info.sbox[i] = i;

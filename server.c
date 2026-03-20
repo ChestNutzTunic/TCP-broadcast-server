@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <Psapi.h> // process status API = necessary for server dashboard
 
-#define MAX_THREADS 16
+#define MAX_THREADS 10
 
 DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
 DWORD WINAPI update_server_dashboard(LPVOID lpParam);
@@ -82,6 +82,7 @@ int main() {
             CreateIoCompletionPort((HANDLE)new_comm, hPort, (ULONG_PTR)new_comm, 0);
 
             // Initialize a new CLIENT object with a unique ID and shared secret key
+            // the client object is in the DCA, allocated, the arena will only hold it's pointer
             CLIENT* cl = initialize_client(new_comm, client_total_count++, "MY_MAGIC_KEY");
             
             // Critical Section: Thread-safe addition to the connection array
@@ -110,6 +111,8 @@ int main() {
     free_DCA(CONN_A);
     ReleaseSRWLockExclusive(&LOCK);
 
+    ReleaseSRWLockShared(&LOCK);
+
     closesocket(s);
     WSACleanup();
 
@@ -129,7 +132,6 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
     while(TRUE){
         bool result = GetQueuedCompletionStatus(hPort, &bytesTransferred, &completionKey, &lpOverlapped, INFINITE);
 
-        // CONTINUE KEYWORD = JUMPS TO THE NEXT WHILE LOOP
         if (lpOverlapped == NULL) continue;
 
         client_info = (COM_PORT_INFO*)lpOverlapped;
@@ -142,10 +144,20 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                 if(result && bytesTransferred > 0){
 
                     // Decrypt incoming message
-                    cipher_buffer(client_info->client, client_info->wsabuf.buf, bytesTransferred);
+                    EnterCriticalSection(&(client_info->client->CS_lock));
 
-                    // \0 ISN'T TRANSPORTED THROUGH SOCKETS WITH 'SEND', SO IT'S NECESSARY TO DICTATE WHERE THE STRING ENDS
-                    client_info->wsabuf.buf[bytesTransferred] = '\0';
+                    InterlockedIncrement(&(client_info->client->ref_counting));
+
+                    cipher_buffer(client_info->client, client_info->wsabuf.buf, bytesTransferred);
+                    LeaveCriticalSection(&(client_info->client->CS_lock));
+
+                    if(bytesTransferred < MAX_BUFFER_SIZE){
+                        // \0 ISN'T TRANSPORTED THROUGH SOCKETS WITH 'SEND', SO IT'S NECESSARY TO DICTATE WHERE THE STRING ENDS
+                        client_info->wsabuf.buf[bytesTransferred] = '\0';
+                    }
+                    else{
+                        client_info->wsabuf.buf[bytesTransferred-1] = '\0';
+                    }
 
                     char bufferOUT[MAX_BUFFER_SIZE];
 
@@ -169,6 +181,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
                         // Since this if statement handles the exit of clients, it's necessary to decrement the reference counting
                         if(InterlockedDecrement(&(client_info->client->ref_counting)) == 0){
+                            DeleteCriticalSection(&(client_info->client->CS_lock));
                             free(client_info->client);
                         }
 
@@ -200,6 +213,7 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                     InterlockedDecrement(&client_count);
 
                     if(InterlockedDecrement(&client_info->client->ref_counting) == 0){
+                        DeleteCriticalSection(&(client_info->client->CS_lock));
                         free(client_info->client);
                     }
                     
@@ -217,10 +231,16 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
             case 1: // WRITE_DONE OPERATION
 
+                // save client_info->client at this very moment to free later if necessary
+                // even though we free the client before giving the block to the arena, it's better to save the reference for future use
+                CLIENT* ref = client_info->client;
+
                 //  IF REFERENCE_COUNTING REACHES 0, THEN ALL PENDING WSASends HAVE COMPLETED
-                if(InterlockedDecrement(&(client_info->client->ref_counting)) == 0){
-                    free(client_info->client);
+                if(InterlockedDecrement(&(ref->ref_counting)) == 0){
+                    DeleteCriticalSection(&(ref->CS_lock));
+                    free(ref);
                 }
+
 
                 // SINCE IT'S A WRITE_DONE OPERATION, CLIENT_INFO IS JUST THE WRITE CONTEXT
                 Arena_Push(arena_header, (void*)client_info);
@@ -245,14 +265,13 @@ DWORD WINAPI update_server_dashboard(LPVOID lpParam){
         SetConsoleCursorPosition(hConsole, cursorPosition);
 
         printf("====================================================\n");
-        printf("              IOCP SERVER DASHBOARD                 \n");
+        printf("                  SERVER DASHBOARD                  \n");
         printf("----------------------------------------------------\n");
         printf(" Connected Clients: %-10ld                     \n", client_count);
-        printf(" Memory Allocated:  %-10lu KB                  \n", PR_MEM_C.PrivateUsage / 1024);
-        printf(" Total Memory Allocated:  %-10lu KB                  \n", PR_MEM_C.WorkingSetSize / 1024);
+        printf(" Memory Allocated:  %-10lu MB                  \n", PR_MEM_C.PrivateUsage / (1024*1024));
         printf("====================================================\n");
 
-        Sleep(1000);
+        Sleep(100);
     }
     return 0;
 }

@@ -77,11 +77,16 @@ void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* b
             char buff[MAX_BUFFER_SIZE];
 
             memcpy(buff, bufferOUT, size_buff);
+
             // CIPHER MESSAGE
+            // important to use critical section when ciphering messages, since broadcast uses a SRWlockshared, 2 threads may change a client SBOX at the same time
+            EnterCriticalSection(&(S->CS_lock));
             cipher_buffer(S, buff, size_buff);
+            LeaveCriticalSection(&(S->CS_lock));
 
             // COPYING COMMUNICATION PORT INFO
             COM_PORT_INFO* write_context = Arena_Pop(arena_header);
+
             write_context->client = S;
             write_context->operation_info = OP_WRITE_DONE;
 
@@ -98,10 +103,10 @@ void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* b
             int res = WSASend(S->comm_channel, &(write_context->wsabuf), 1, NULL, 0, &(write_context->overlapped), NULL);
             if(res == SOCKET_ERROR){
                 int err = WSAGetLastError();
-                if(err != WSA_IO_PENDING)
-                    // IMEDIATE ERROR, DECREMENT COUNTER
+                if(err != WSA_IO_PENDING){
                     InterlockedDecrement(&(S->ref_counting));
-                    free(write_context);
+                    Arena_Push(arena_header, write_context);
+                }
             }
             // IF res == 0 or lastError == WSA_IO_PENDING, the information is still being processed by the kernel
 
