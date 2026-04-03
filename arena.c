@@ -16,7 +16,7 @@ ARENA_HEADER* Arena_Init(size_t block_size){
     while(block_size > mem_area)
         mem_area *= 16;
 
-    // IF NOT DIVISIBLE BY 16, ADD ENOUGH BYTES TO MAKE IT
+    // IF NOT DIVISIBLE BY 16, ADD ENOUGH BYTES TO MAKE IT BE
     block_size = makeDiv16(block_size);
 
     u32 block_quantity = (mem_area-sizeof(ARENA_HEADER))/block_size;
@@ -96,7 +96,7 @@ void Arena_Expand(ARENA_HEADER* arena_header){
         if(retry_count<64)
             retry_count++;
         }
-
+    
     InterlockedAdd((volatile long*)&(arena_header->blocks_left), block_quantity);
     InterlockedAdd(&total_blocks, block_quantity);
 }
@@ -132,7 +132,7 @@ void* Arena_Pop(ARENA_HEADER* arena_header){
         }
 
         // By dereferencing block A, we get the value of the NEXT block, let's call it block B
-        u64 next_block = *(volatile u64*)block_to_return;
+        void* next_block = *(void**)block_to_return;
         
         // COMPARES THE ARENA HEADER WITH THE SNAPSHOT WE TOOK, IF EQUAL, RETURNS TRUE, IF NOT, RETURNS FALSE
         // IF TRUE, arena_header->next_mem_block = next_block, making block_to_return free to use

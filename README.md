@@ -19,8 +19,6 @@ Implementing x86 Assembly was challenging, but also very rewarding, truly an exp
 ## Things that i would like to implement furthermore in this project:
 - A pseudo-random key generator for encrypting data;
 - A timer to identify dead-connections, inactive users, etc. Mitigating memory leak;
-- Implementing server-side commands;
-- Implementing file transfer;
 - Checking how many pending messages a client has, and either stop sending anything, or disconnect him for excessive lag, as it would consume unnecessary RAM;
 
 ## How to compile

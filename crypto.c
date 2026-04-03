@@ -13,6 +13,8 @@ CLIENT* initialize_client(SOCKET comm, DWORD id, unsigned char* KEY){
     }
 
     cl->ref_counting = 1;
+    cl->flood_threshold = 0;
+    cl->last_msg_time = 0;
     
     u32 key_lenght = strlen(KEY);
     u16 j=0;

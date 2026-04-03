@@ -73,7 +73,15 @@ void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* b
     for(u32 i=0; i<sizeof_DCA(DCA); i++){
         CLIENT* S = get_elem_DCA(DCA, i);
 
+        // checks if it is a valid client
         if(S!=NULL && S->comm_channel != INVALID_SOCKET && S != client_info->client){
+
+            // checks if the client isn't suffering from excessive lag, if so, stops adding excessive messages
+            if(InterlockedIncrement(&(S->ref_counting)) >= 5000){
+                InterlockedDecrement(&(S->ref_counting));
+                continue;
+            }
+
             char buff[MAX_BUFFER_SIZE];
 
             memcpy(buff, bufferOUT, size_buff);
@@ -104,7 +112,10 @@ void broadcast_to_DCA(COM_PORT_INFO* client_info, DYN_CLIENT_ARRAY* DCA, char* b
             if(res == SOCKET_ERROR){
                 int err = WSAGetLastError();
                 if(err != WSA_IO_PENDING){
-                    InterlockedDecrement(&(S->ref_counting));
+                    if (InterlockedDecrement(&(S->ref_counting)) == 0) {
+                        DeleteCriticalSection(&(S->CS_lock));
+                        free(S);
+                    }
                     Arena_Push(arena_header, write_context);
                 }
             }

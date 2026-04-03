@@ -15,7 +15,7 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-#define MAX_BUFFER_SIZE 1152 // 1024 + 128 (extra space for texts headers)
+#define MAX_BUFFER_SIZE 512
 
 typedef struct{
     unsigned char sbox[256]; 
@@ -29,7 +29,9 @@ typedef struct{
     CRITICAL_SECTION CS_lock;
     SOCKET comm_channel;
     volatile LONG ref_counting;
+    u64 last_msg_time;
     DWORD client_id;
+    u8 flood_threshold;
     
 } CLIENT;
 

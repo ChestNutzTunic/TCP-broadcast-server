@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <Psapi.h> // process status API = necessary for server dashboard
 
-#define MAX_THREADS 10
+#define MAX_THREADS 12
 
 DWORD WINAPI processClientConversation(LPVOID client_comm_channel);
 DWORD WINAPI update_server_dashboard(LPVOID lpParam);
@@ -140,6 +140,34 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
         switch(client_info->operation_info){
 
             case 0: // WRITE OPERATION
+
+                // checks if the time from the last message to the new one is less than 100ms
+                u64 curr_time = GetTickCount64();   // getTickCount64 is used to get the amount of ticks that has passed since the system has been initialized
+                if(curr_time - client_info->client->last_msg_time <= 200){
+                    client_info->client->flood_threshold++;
+                    
+                    if (client_info->client->flood_threshold > 50) {
+                        closesocket(client_info->client->comm_channel);
+                        client_info->client->comm_channel = INVALID_SOCKET;
+                        
+                        AcquireSRWLockExclusive(&LOCK);
+                        remove_of_DCA(CONN_A, client_info->client);
+                        ReleaseSRWLockExclusive(&LOCK);
+                        InterlockedDecrement(&client_count);
+
+                        if (InterlockedDecrement(&client_info->client->ref_counting) == 0) {
+                            DeleteCriticalSection(&(client_info->client->CS_lock));
+                            free(client_info->client);
+                        }
+                        Arena_Push(arena_header, (void*)client_info);
+                    }
+
+                    goto jump_broadcast;
+                }
+                // client last_msg_time is saved
+                client_info->client->last_msg_time = curr_time;
+                // client flood threshold is set to zero if respected
+                client_info->client->flood_threshold = 0; 
             
                 if(result && bytesTransferred > 0){
 
@@ -222,11 +250,30 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
 
                 }
 
+                jump_broadcast:
+
                 memset(&client_info->overlapped, 0, sizeof(client_info->overlapped));
 
                 DWORD flags = 0;
-                WSARecv(client_info->client->comm_channel, &(client_info->wsabuf), 1, NULL, &flags, &(client_info->overlapped), NULL);
+                int recv_response = WSARecv(client_info->client->comm_channel, &(client_info->wsabuf), 1, NULL, &flags, &(client_info->overlapped), NULL);
             
+                if(recv_response == SOCKET_ERROR){
+                    int err = WSAGetLastError();
+                    if(err != WSA_IO_PENDING){
+                        AcquireSRWLockExclusive(&LOCK);
+                        remove_of_DCA(CONN_A, client_info->client);
+                        ReleaseSRWLockExclusive(&LOCK);
+                        InterlockedDecrement(&client_count);
+                        
+                        if (InterlockedDecrement(&client_info->client->ref_counting) == 0) {
+                            DeleteCriticalSection(&(client_info->client->CS_lock));
+                            free(client_info->client);
+                        }
+                        
+                        Arena_Push(arena_header, (void*)client_info);
+                    }
+                }
+
                 break;
 
             case 1: // WRITE_DONE OPERATION
@@ -271,7 +318,7 @@ DWORD WINAPI update_server_dashboard(LPVOID lpParam){
         printf(" Memory Allocated:  %-10lu MB                  \n", PR_MEM_C.PrivateUsage / (1024*1024));
         printf("====================================================\n");
 
-        Sleep(100);
+        Sleep(1000);
     }
     return 0;
 }
