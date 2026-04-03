@@ -149,21 +149,11 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                     if (client_info->client->flood_threshold > 50) {
                         closesocket(client_info->client->comm_channel);
                         client_info->client->comm_channel = INVALID_SOCKET;
-                        
-                        AcquireSRWLockExclusive(&LOCK);
-                        remove_of_DCA(CONN_A, client_info->client);
-                        ReleaseSRWLockExclusive(&LOCK);
-                        InterlockedDecrement(&client_count);
-
-                        if (InterlockedDecrement(&client_info->client->ref_counting) == 0) {
-                            DeleteCriticalSection(&(client_info->client->CS_lock));
-                            free(client_info->client);
-                        }
-                        Arena_Push(arena_header, (void*)client_info);
                     }
 
                     goto jump_broadcast;
                 }
+                
                 // client last_msg_time is saved
                 client_info->client->last_msg_time = curr_time;
                 // client flood threshold is set to zero if respected

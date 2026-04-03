@@ -8,6 +8,7 @@ As i enter to my second year as a CS student, i have developed a deep interest f
 
 Initially, my idea was to create a thread for each new client to run a basic communication function. However, it became clear that this would waste a significant amount of memory. Instead, I implemented a thread pool with IOCP (Input/Output Completion Ports) to handle WSASend() and WSArecv() operations with minimal performance deterioration.
 Implementing x86 Assembly was challenging, but also very rewarding, truly an experience :D.
+Also, it's important to note that usually the threshold for both the amount of messages that can be sent and received would be much smaller, since no human can read thousand of messages appearing simultaneously, but i was experimenting with the server efficiency, so i just left it as is.
 
 ## This project includes:
 - A simple RC4 based stream cipher with a substitution box for each client, ensuring secure communication;
@@ -15,10 +16,10 @@ Implementing x86 Assembly was challenging, but also very rewarding, truly an exp
 - Reference Counting for Completion Ports memory management, more specifically, to manage the CLIENT object life cycle;
 - A lock-free buffer arena using a free list (inspired by slist_header) and linear backoff to reduce CAS(Compare and Swap) contention under high thread concurrency;
 - Custom x86_64 Assembly: Since standard atomic intrinsics can be restrictive, i wasn't able to use the function that was necessary for atomic compare/exchange of the linked list header, i wrote a custom _InterlockedCompareExchange128 (using lock cmpxchg16b) in NASM to handle the ABA problem;
+- Use of a reference counter to not only know when to free communication info that is not useful anymore, but also to constantly check if the users are spamming or not, and if so, ban them to mitigate excess memory usage.
 
 ## Things that i would like to implement furthermore in this project:
 - A pseudo-random key generator for encrypting data;
-- A timer to identify dead-connections, inactive users, etc. Mitigating memory leak;
 - Checking how many pending messages a client has, and either stop sending anything, or disconnect him for excessive lag, as it would consume unnecessary RAM;
 
 ## How to compile
