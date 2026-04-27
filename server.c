@@ -85,7 +85,6 @@ int main() {
             // the client object is in the DCA, allocated, the arena will only hold it's pointer
             CLIENT* cl = initialize_client(new_comm, client_total_count++, "MY_MAGIC_KEY");
             
-            // Critical Section: Thread-safe addition to the connection array
             AcquireSRWLockExclusive(&LOCK);
             add_to_DCA(CONN_A, cl);
             ReleaseSRWLockExclusive(&LOCK);
@@ -106,7 +105,6 @@ int main() {
         }
     }
 
-    // Resource cleanup
     AcquireSRWLockExclusive(&LOCK);
     free_DCA(CONN_A);
     ReleaseSRWLockExclusive(&LOCK);
@@ -142,22 +140,48 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
             case 0: // WRITE OPERATION
 
                 // checks if the time from the last message to the new one is less than 100ms
-                u64 curr_time = GetTickCount64();   // getTickCount64 is used to get the amount of ticks that has passed since the system has been initialized
-                if(curr_time - client_info->client->last_msg_time <= 200){
+                u64 curr_time = GetTickCount64();
+                bool is_spamming = false;
+
+                EnterCriticalSection(&(client_info->client->CS_lock));
+                
+                // if difference is less than 200ms, than it's considered flood
+                if((curr_time - client_info->client->last_msg_time) <= 200){
                     client_info->client->flood_threshold++;
-                    
-                    if (client_info->client->flood_threshold > 50) {
+                    is_spamming = true;
+                } else {
+                    client_info->client->flood_threshold = 0;
+                }
+                
+                client_info->client->last_msg_time = curr_time;
+
+                LeaveCriticalSection(&(client_info->client->CS_lock));
+
+                if(is_spamming){
+                    if(client_info->client->flood_threshold > 20){
                         closesocket(client_info->client->comm_channel);
                         client_info->client->comm_channel = INVALID_SOCKET;
+                        
+                        AcquireSRWLockExclusive(&LOCK);
+                        remove_of_DCA(CONN_A, client_info->client);
+                        ReleaseSRWLockExclusive(&LOCK);
+
+                        InterlockedDecrement(&client_count);
+
+                        if(InterlockedDecrement(&(client_info->client->ref_counting)) == 0) {
+                            DeleteCriticalSection(&(client_info->client->CS_lock));
+                            free(client_info->client);
+                        }
+
+                        Arena_Push(arena_header, (void*)client_info);
+                        
+                        continue;
+
                     }
 
                     goto jump_broadcast;
                 }
                 
-                // client last_msg_time is saved
-                client_info->client->last_msg_time = curr_time;
-                // client flood threshold is set to zero if respected
-                client_info->client->flood_threshold = 0; 
             
                 if(result && bytesTransferred > 0){
 
@@ -189,7 +213,6 @@ DWORD WINAPI processClientConversation(LPVOID completion_port){
                         broadcast_to_DCA(client_info, CONN_A, bufferOUT, size_buff);
 
                         ReleaseSRWLockShared(&LOCK);
-
 
                         // LIBERATE FROM DYNAMIC ARRAY (ONLY CLOSES SOCKET)
                         AcquireSRWLockExclusive(&LOCK);
@@ -297,15 +320,14 @@ DWORD WINAPI update_server_dashboard(LPVOID lpParam){
         PROCESS_MEMORY_COUNTERS_EX PR_MEM_C;
         GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&PR_MEM_C, sizeof(PR_MEM_C));
 
-        // Move o cursor para o topo em vez de limpar tudo
         COORD cursorPosition = {0, 0};
         SetConsoleCursorPosition(hConsole, cursorPosition);
 
         printf("====================================================\n");
         printf("                  SERVER DASHBOARD                  \n");
         printf("----------------------------------------------------\n");
-        printf(" Connected Clients: %-10ld                     \n", client_count);
-        printf(" Memory Allocated:  %-10lu MB                  \n", PR_MEM_C.PrivateUsage / (1024*1024));
+        printf(" Connected Clients: %ld                     \n", client_count);
+        printf(" Memory Allocated:  %lu MB                  \n", PR_MEM_C.PrivateUsage / (1024*1024));
         printf("====================================================\n");
 
         Sleep(1000);

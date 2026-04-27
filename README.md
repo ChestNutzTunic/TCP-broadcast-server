@@ -15,12 +15,11 @@ Also, it's important to note that usually the threshold for both the amount of m
 - SRWLocks for optimized thread read/write usage and Critical Sections on the client-side to protect the encryption state during full-duplex communication;
 - Reference Counting for Completion Ports memory management, more specifically, to manage the CLIENT object life cycle;
 - A lock-free buffer arena using a free list (inspired by slist_header) and linear backoff to reduce CAS(Compare and Swap) contention under high thread concurrency;
-- Custom x86_64 Assembly: Since standard atomic intrinsics can be restrictive, i wasn't able to use the function that was necessary for atomic compare/exchange of the linked list header, i wrote a custom _InterlockedCompareExchange128 (using lock cmpxchg16b) in NASM to handle the ABA problem;
+- Custom x86_64 Assembly: Since standard atomic intrinsics can be restrictive, i wasn't able to use the function that was necessary for atomic compare/exchange of the linked list header, i wrote a custom _InterlockedCompareExchange128 (using lock cmpxchg16b) to handle the ABA problem;
 - Use of a reference counter to not only know when to free communication info that is not useful anymore, but also to constantly check if the users are spamming or not, and if so, ban them to mitigate excess memory usage.
 
 ## Things that i would like to implement furthermore in this project:
 - A pseudo-random key generator for encrypting data;
-- Checking how many pending messages a client has, and either stop sending anything, or disconnect him for excessive lag, as it would consume unnecessary RAM;
 
 ## How to compile
 ### Compiling the cmpxchg.asm
@@ -29,7 +28,7 @@ Then, use:
 ```bash
 nasm -f win64 cmpxchg16.asm -o cmpxchg16.o
 ```
- 
+
 ### Compiling everything together
 To compile everything, after already compiling the assembly file, use:
 ```bash

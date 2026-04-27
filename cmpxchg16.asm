@@ -1,4 +1,4 @@
-; Para compilar: nasm -f win64 code.asm && gcc code.obj -o code.exe
+; To compile: nasm -f win64 cmpxchg16.asm && gcc cmpxchg16.obj -o cmpxchg16.exe
 
 section .text
     global CompareExchange16
@@ -13,8 +13,8 @@ CompareExchange16:
 
     mov rdi, rcx ; saves rcx (first argument), in rdi (rdi = arena_head)
 
-    mov rbx, r8      ; RBX = novo LOW
-    mov rcx, rdx      ; RCX = novo HIGH
+    mov rbx, r8      ; RBX = new LOW
+    mov rcx, rdx      ; RCX = new HIGH
 
     mov rax, [r9]   ; RAX = snapshot pointer
     mov rdx, [r9+8] ; RDX = snapshot sequence
