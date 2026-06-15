@@ -4,7 +4,7 @@
 
 Studying TCP/IP fundamentals, implementing a multithreaded server using win32 API and winsock. Developed to study socket programming, memory management, race conditions mitigation, and cryptography basics.
 
-As i enter to my second year as a CS student, i have developed a deep interest for networking. I started this project as a practical companion to my studies of 'TCP/IP Illustrated'. Even though Linux is the industry standard for most server-side applications, i chose to explore the Windows API to understand a little more how high-concurrency and synchronization primitives function within the NT Kernel architecture.
+I started this project as a practical companion to my studies of 'TCP/IP Illustrated'. Even though Linux is the industry standard for most server-side applications, i chose to explore the Windows API to understand a little more how high-concurrency and synchronization primitives function within the NT Kernel architecture.
 
 Initially, my idea was to create a thread for each new client to run a basic communication function. However, it became clear that this would waste a significant amount of memory. Instead, I implemented a thread pool with IOCP (Input/Output Completion Ports) to handle WSASend() and WSArecv() operations with minimal performance deterioration.
 Implementing x86 Assembly was challenging, but also very rewarding, truly an experience :D.
