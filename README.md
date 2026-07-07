@@ -7,7 +7,7 @@ Studying TCP/IP fundamentals, implementing a multithreaded server using win32 AP
 I started this project as a practical companion to my studies of 'TCP/IP Illustrated'. Even though Linux is the industry standard for most server-side applications, i chose to explore the Windows API to understand a little more how high-concurrency and synchronization primitives function within the NT Kernel architecture.
 
 Initially, my idea was to create a thread for each new client to run a basic communication function. However, it became clear that this would waste a significant amount of memory. Instead, I implemented a thread pool with IOCP (Input/Output Completion Ports) to handle WSASend() and WSArecv() operations with minimal performance deterioration.
-Implementing x86 Assembly was challenging, but also very rewarding, truly an experience :D.
+Implementing x86 Assembly was challenging, but also very rewarding.
 Also, it's important to note that usually the threshold for both the amount of messages that can be sent and received would be much smaller, since no human can read thousand of messages appearing simultaneously, but i was experimenting with the server efficiency, so i just left it as is.
 
 ## This project includes:
